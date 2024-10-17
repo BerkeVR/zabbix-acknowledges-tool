@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Display Acknowledges by User</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.3/xlsx.full.min.js"></script>
+    <style>
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f8f9fa; /* Default background color */
+}
+.container {
+    max-width: 1000px; /* Example width, can be adjusted as needed */
+    margin: 20px auto;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 20px;
+    color: #333;
+}
+
+select, button {
+    display: block;
+    margin: 0 auto;
+    margin-bottom: 20px;
+    padding: 10px;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    background-color: #f8f9fa;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+select:hover, button:hover {
+    background-color: #e9ecef;
+}
+
+button {
+    background-color: #007bff;
+    color: #fff;
+    width: 200px;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+table {
+    width: 100%;
+    overflow-x: auto; /* Enable horizontal scrolling */
+    border-collapse: collapse;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    margin-top: 20px;
+}
+
+th, td {
+    padding: 10px;
+    border-bottom: 1px solid #ccc;
+    text-align: center;
+}
+
+th {
+    background-color: #f0f0f0;
+    color: #333;
+}
+
+th:last-child, td:last-child {
+    border-right: none;
+}
+
+tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Select a User and View Acknowledges</h1>
+
+    <select id="userListbox">
+        <option value="">Select User</option>
+    </select>
+    <button id="showAcksButton" class="button">View Acknowledges</button>
+    <button id="exportToExcelButton" class="button">Export to Excel</button>
+    <h4>Alarm Date Time - Acknowledges Date Time - Time - User - Acknowledges - Host - Problem Description</h4>
+    <div id="ackList">
+        <table>
+            <thead>
+                <tr>
+                    <th>Alarm Date Time</th>
+                    <th>Acknowledges Date Time</th>
+                    <th>Time</th>
+                    <th>User</th>
+                    <th>Acknowledges</th>
+                    <th>Host</th>
+                    <th>Problem Description</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function convertMinutes(minutes) {
+    const days = Math.floor(minutes / (60 * 24));
+    const hours = Math.floor((minutes % (60 * 24)) / 60);
+    const remainingMinutes = minutes % 60;
+    let result = "";
+    if (days > 0) {
+        result += days + " days ";
+    }
+    if (hours > 0) {
+        result += hours + " hours ";
+    }
+    if (remainingMinutes > 0) {
+        result += remainingMinutes + " minutes";
+    }
+    return result.trim(); // Remove leading and trailing spaces
+}
+
+function convertSeconds(seconds) {
+    const days = Math.floor(seconds / (60 * 60 * 24));
+    const hours = Math.floor((seconds % (60 * 60 * 24)) / (60 * 60));
+    const minutes = Math.floor((seconds % (60 * 60)) / 60);
+    const remainingSeconds = seconds % 60;
+    let result = "";
+    if (days > 0) {
+        result += days + " days ";
+    }
+    if (hours > 0) {
+        result += hours + " hours ";
+    }
+    if (minutes > 0) {
+        result += minutes + " minutes ";
+    }
+    if (remainingSeconds > 0) {
+        result += remainingSeconds + " seconds";
+    }
+    return result.trim(); // Remove leading and trailing spaces
+}
+document.getElementById('showAcksButton').addEventListener('click', (event) => {
+    event.preventDefault(); // Prevent page from scrolling to the top
+    const selectedUser = document.getElementById('userListbox').value;
+    fetch(`/query?sql=SELECT FROM_UNIXTIME(e.clock, '%25d-%25m-%25Y %25H:%25i:%25s') AS alarm_time, FROM_UNIXTIME(a.clock, '%25d-%25m-%25Y %25H:%25i:%25s') AS ack_time, TIMESTAMPDIFF(SECOND, FROM_UNIXTIME(e.clock), FROM_UNIXTIME(a.clock)) AS diff_seconds, u.username AS username, a.message AS ack_message, h.host, t.description AS problem_description FROM events e JOIN acknowledges a ON e.eventid = a.eventid JOIN users u ON a.userid = u.userid JOIN triggers t ON e.objectid = t.triggerid JOIN functions f ON t.triggerid = f.triggerid JOIN items i ON f.itemid = i.itemid JOIN hosts h ON i.hostid = h.hostid WHERE u.username='${selectedUser}' ORDER BY e.clock DESC, diff_seconds DESC, alarm_time DESC, ack_time DESC;`)
+        .then(response => response.json())
+        .then(data => {
+            const ackListTable = document.querySelector('#ackList table tbody');
+            ackListTable.innerHTML = ''; // Clear previous content
+            if (data.length > 0) {
+                data.forEach(ack => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${ack.alarm_time}</td>
+                        <td>${ack.ack_time}</td>
+                        <td>${convertSeconds(ack.diff_seconds)}</td>
+                        <td>${ack.username}</td>
+                        <td>${ack.ack_message}</td>
+                        <td>${ack.host}</td>
+                        <td>${ack.problem_description}</td>
+                    `;
+                    ackListTable.appendChild(row);
+                });
+            } else {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td colspan="7">No Acknowledges Found for This User!</td>`;
+                ackListTable.appendChild(row);
+            }
+        })
+        .catch(error => console.error('Error fetching acks: ' + error));
+});
+
+
+document.getElementById('exportToExcelButton').addEventListener('click', (event) => {
+    const data = [];
+    document.querySelectorAll('#ackList table tbody tr').forEach(tr => {
+        const [alarm_time, ack_time, diff_minutes, username, ack_message, host, problem] = Array.from(tr.cells).map(cell => cell.textContent);
+        data.push({ "Alarm Date Time": alarm_time, "Acknowledges Date Time": ack_time, "Time": diff_minutes, "User": username, "Acknowledges": ack_message, "Host": host, "Problem": problem });
+    });
+
+    if (data.length > 0) {
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Acknowledges");
+        XLSX.writeFile(wb, "acknowledges.xlsx");
+    } else {
+        alert('No data available to export!');
+    }
+});
+
+    fetch('/query?sql=SELECT username FROM users')
+        .then(response => response.json())
+        .then(data => {
+            const userListbox = document.getElementById('userListbox');
+            userListbox.innerHTML = ''; // Clear previous content
+            data.forEach(username => {
+                const option = document.createElement('option');
+                option.text = username.username;
+                userListbox.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error fetching users: ' + error));
+</script>
+</body>
+</html>
